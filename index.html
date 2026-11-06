@@ -237,16 +237,23 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
       const j = await r.json();
       if (my !== seq) return;
       if (!j.success) throw new Error(j.errorMessage || "api");
-      // 出来上がるまで status.json を見る（混んでいると数秒）
-      for (let i = 0; i < 60; i++) {
-        const s = await (await fetch(j.audioStatusUrl, { cache: "no-store" })).json();
-        if (s.isAudioReady) break;
-        if (s.isAudioError) throw new Error("audio error");
-        await sleep(500);
+      // 出来上がりを待たず、作りながら流れてくるストリーミング URL をすぐ再生する
+      audio.src = j.mp3StreamingUrl;
+      audio.onplay = startMouth; audio.onended = stopMouth;
+      audio.onerror = async () => {
+        // ストリーミングが拒まれたら、出来上がりを待って普通の mp3 を鳴らす
         if (my !== seq) return;
-      }
-      audio.src = j.mp3DownloadUrl;
-      audio.onplay = startMouth; audio.onended = stopMouth; audio.onerror = stopMouth;
+        for (let i = 0; i < 60; i++) {
+          const s = await (await fetch(j.audioStatusUrl, { cache: "no-store" })).json();
+          if (s.isAudioReady) break;
+          if (s.isAudioError) { stopMouth(); status.textContent = "合成に失敗"; return; }
+          await sleep(400);
+          if (my !== seq) return;
+        }
+        audio.onerror = stopMouth;
+        audio.src = j.mp3DownloadUrl;
+        audio.play().catch(stopMouth);
+      };
       await audio.play();
       status.textContent = "VOICEVOX";
     } catch (e) {
