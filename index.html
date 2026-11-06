@@ -61,6 +61,17 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
 .swatches button[aria-pressed="true"] { border-color: var(--fg); }
 .swatches input[type=color] { width: 44px; height: 34px; border: 0; background: none; padding: 0; }
 @media (prefers-reduced-motion: reduce) { .led i { transition: none; } }
+/* iPad の横向き：左に板、右に入力。画面に収めてスクロールさせない */
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (orientation: landscape) and (min-width: 700px) {
+  body { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 12px 24px; align-items: start; overflow: hidden; }
+  h1 { grid-column: 1 / -1; }
+  .board { grid-column: 1; grid-row: 2; }
+  .side { grid-column: 2; grid-row: 2; max-height: 100%; overflow-y: auto; }
+  .board.show { flex-direction: row; align-items: center; gap: 24px; }
+  .board.show .led { flex: 0 0 46%; width: auto; margin: 0; }
+  .board.show .said { flex: 1 1 auto; width: auto; margin: 0; }
+}
 </style>
 </head>
 <body>
@@ -73,6 +84,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   <div class="hint">板をタップすると大きく見せられる</div>
 </div>
 
+<div class="side">
 <textarea id="text" placeholder="ここに打つ。Enterでしゃべる（改行は Shift+Enter）" autocomplete="off" autocapitalize="off"></textarea>
 <div class="row">
   <button class="go" id="go">しゃべる</button>
@@ -106,6 +118,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   </div>
   <div class="row hist" id="hist" style="margin-top:8px"></div>
 </details>
+</div>
 
 <script>
 (function () {
