@@ -30,8 +30,20 @@ h1 span { font-weight: 500; }
 .led { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; aspect-ratio: 24 / 14; max-width: 100%; }
 .led i { display: block; border-radius: 50%; background: var(--led-dim); transition: background .08s; }
 .led i.on { background: var(--led); box-shadow: 0 0 6px var(--led); }
-.said { font-family: var(--font-mono); color: var(--led); font-size: clamp(20px, 5.5vw, 34px); line-height: 1.35; min-height: 1.35em;
-  margin: 12px 4px 2px; word-break: break-all; filter: brightness(1.15); }
+/* 顔の下の吹き出し：相手に見せる用に、白地に黒い大きな字 */
+.said { position: relative; margin: 18px 4px 4px; background: #fff; color: #15130f; border-radius: 18px; padding: 14px 18px;
+  font: 700 clamp(24px, 6vw, 40px)/1.35 var(--font-ui); word-break: break-all; min-height: 1.35em; }
+.said::before { content: ""; position: absolute; top: -12px; left: 44px; border: 12px solid transparent; border-top: 0; border-bottom-color: #fff; }
+.said.pop { animation: pop .22s ease-out; }
+@keyframes pop { from { transform: scale(.92); opacity: .3; } to { transform: none; opacity: 1; } }
+/* 見せるモード：板が画面いっぱい */
+.board.show { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); }
+.board.show .led { width: min(100%, 60vh * 24 / 14); margin: 0 auto; }
+.board.show .said { font-size: clamp(30px, 7vw, 72px); margin-top: 26px; }
+.board.show .said::before { left: 60px; }
+.hint { font-size: 12px; color: #6b6f7a; text-align: right; margin: 8px 4px 0; }
+.board.show .hint { display: none; }
 textarea { width: 100%; box-sizing: border-box; font: 500 22px/1.4 var(--font-ui); padding: 12px 14px; border: 2px solid var(--line);
   border-radius: 14px; background: var(--panel); color: var(--fg); resize: none; min-height: 3.2em; }
 textarea:focus { outline: none; border-color: var(--accent); }
@@ -63,6 +75,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
 <div class="board" id="board">
   <div class="led" id="led" aria-hidden="true"></div>
   <div class="said" id="said">打った文を、この板がしゃべるのだ。</div>
+  <div class="hint">板をタップすると大きく見せられる</div>
 </div>
 
 <textarea id="text" placeholder="ここに打つ。Enterでしゃべる（改行は Shift+Enter）" autocomplete="off" autocapitalize="off"></textarea>
@@ -70,6 +83,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   <button class="go" id="go">しゃべる</button>
   <button id="stop" class="small">止める</button>
   <button id="clear" class="small">消す</button>
+  <button id="show" class="small">見せる</button>
 </div>
 <div class="row faces" id="faces" aria-label="表情">
   <button data-face="auto" aria-pressed="true">自動</button>
@@ -224,7 +238,9 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     if (!text) return;
     const my = ++seq;
     current = manual === "auto" ? guess(text) : manual;
-    $("#said").textContent = text;
+    const said = $("#said");
+    said.textContent = text;
+    said.classList.remove("pop"); void said.offsetWidth; said.classList.add("pop");
     draw(current, false);
     addHistory(text);
     audio.pause();
@@ -282,6 +298,10 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   $("#go").addEventListener("click", () => { speak(ta.value); ta.focus(); });
   $("#stop").addEventListener("click", () => { seq++; audio.pause(); stopMouth(); status.textContent = "VOICEVOX"; });
   $("#clear").addEventListener("click", () => { ta.value = ""; ta.focus(); });
+  // 見せるモード：板をタップ／「見せる」で画面いっぱい、もう一度タップで戻る
+  const board = $("#board");
+  board.addEventListener("click", () => { board.classList.toggle("show"); if (board.classList.contains("show")) ta.blur(); });
+  $("#show").addEventListener("click", () => { board.classList.add("show"); ta.blur(); });
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); speak(ta.value); } });
   ta.addEventListener("input", () => { if (manual === "auto") draw(guess(ta.value), false); });
   document.querySelectorAll("#faces button").forEach((b) => b.addEventListener("click", () => {
