@@ -273,7 +273,12 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   const audio = new Audio();
   let manual = "auto", talkTimer = null, current = "neutral", seq = 0;
   function startMouth() { let open = false; clearInterval(talkTimer); talkTimer = setInterval(() => { open = !open; draw(current, open); }, 140); }
-  function stopMouth() { clearInterval(talkTimer); talkTimer = null; draw(current, false); }
+  let autoShown = false;
+  function stopMouth() {
+    clearInterval(talkTimer); talkTimer = null; draw(current, false);
+    // 喋り終わったら板を元の大きさに戻して、次の入力へ
+    if (autoShown) { autoShown = false; setTimeout(() => { $("#board").classList.remove("show"); $("#text").focus(); }, 500); }
+  }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function speak(text) {
@@ -284,6 +289,10 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     ledText(text);
     draw(current, false);
     addHistory(text);
+    // 喋っている間は板を大きく見せ、入力欄は空にして次を打てるように
+    $("#text").value = "";
+    $("#board").classList.add("show");
+    autoShown = true;
     audio.pause();
     status.textContent = "合成中…";
     // iOS は「タップの中で play() した audio」だけ鳴らせるので、先に無音で再生を始めておく
