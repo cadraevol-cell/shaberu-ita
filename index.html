@@ -31,7 +31,7 @@ h1 span { font-weight: 500; }
 .led i { display: block; border-radius: 50%; background: var(--led-dim); transition: background .08s; }
 .led i.on { background: var(--led); box-shadow: 0 0 6px var(--led); }
 /* 顔の下の電光掲示：文字も同じドットで光る。長い文は右から左へ流れる */
-.said { display: block; width: 100%; aspect-ratio: 80 / 20; margin-top: 12px; }
+.said { display: block; max-width: 100%; margin: 12px auto 0; }
 /* 見せるモード：板が画面いっぱい */
 .board.show { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box;
   padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); }
@@ -70,7 +70,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   .side { grid-column: 2; grid-row: 2; max-height: 100%; overflow-y: auto; }
   /* 見せるモードは横向きでも縦積み：上に顔、下に文字。高さに合わせて幅を決める */
   .board.show .led { width: min(100%, 54vh * 24 / 14); margin: 0 auto; }
-  .board.show .said { width: min(100%, 26vh * 80 / 20); margin: 18px auto 0; }
+  .board.show .said { margin-top: 18px; }
 }
 </style>
 </head>
@@ -180,36 +180,47 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
   }
 
   // ---- 文字の電光掲示（80×20 ドット。収まらなければ流す） ----
-  const TC = 80, TR = 20;
+  // 文は流さず、折り返して一度に全部出す。1 行 20 ドット、幅は文の長さで 80〜200 ドット
+  const LINE = 20;
   const saidCv = $("#said");
-  let ledBits = null, ledW = 0, ledOffset = 0, ledAnim = null, ledLast = 0;
+  let ledBits = null, ledCols = 80, ledRows = LINE;
   function ledText(text) {
-    const off = document.createElement("canvas");
-    const ctx0 = off.getContext("2d");
-    ctx0.font = `700 ${TR - 2}px ${getComputedStyle(document.documentElement).getPropertyValue("--font-ui")}`;
-    const w = Math.ceil(ctx0.measureText(text).width) + 2;
-    ledW = Math.max(TC, w);
-    off.width = ledW; off.height = TR;
-    const ctx = off.getContext("2d");
-    ctx.font = ctx0.font; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
-    ctx.fillText(text, w <= TC ? Math.floor((TC - w) / 2) + 1 : 1, TR / 2 + 1);
-    const px = ctx.getImageData(0, 0, ledW, TR).data;
-    ledBits = new Uint8Array(ledW * TR);
-    for (let i = 0; i < ledW * TR; i++) ledBits[i] = px[i * 4 + 3] > 110 ? 1 : 0;
-    ledOffset = w <= TC ? 0 : -TC;
-    ledLast = performance.now();
-    if (!ledAnim) ledAnim = requestAnimationFrame(ledFrame);
-  }
-  function ledFrame(now) {
-    ledAnim = requestAnimationFrame(ledFrame);
-    const scrolling = ledW > TC;
-    if (scrolling) {
-      const dt = Math.min(0.1, (now - ledLast) / 1000);
-      ledOffset += dt * 14;
-      if (ledOffset > ledW) ledOffset = -TC;
+    const font = `700 ${LINE - 2}px ${getComputedStyle(document.documentElement).getPropertyValue("--font-ui")}`;
+    const meas = document.createElement("canvas").getContext("2d");
+    meas.font = font;
+    const total = meas.measureText(text).width;
+    ledCols = [80, 120, 160, 200].find((c) => Math.ceil(total / (c - 4)) <= 3) || 200;
+    const lines = [];
+    let cur = "", curW = 0;
+    for (const ch of text) {
+      if (ch === "\n") { lines.push(cur); cur = ""; curW = 0; continue; }
+      const w = meas.measureText(ch).width;
+      if (curW + w > ledCols - 4 && cur) { lines.push(cur); cur = ""; curW = 0; }
+      cur += ch; curW += w;
     }
-    ledLast = now;
+    if (cur || !lines.length) lines.push(cur);
+    ledRows = LINE * lines.length;
+    const off = document.createElement("canvas");
+    off.width = ledCols; off.height = ledRows;
+    const ctx = off.getContext("2d");
+    ctx.font = font; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
+    lines.forEach((ln, i) => {
+      const w = ctx.measureText(ln).width;
+      ctx.fillText(ln, Math.floor((ledCols - w) / 2), i * LINE + LINE / 2 + 1);
+    });
+    const px = ctx.getImageData(0, 0, ledCols, ledRows).data;
+    ledBits = new Uint8Array(ledCols * ledRows);
+    for (let i = 0; i < ledCols * ledRows; i++) ledBits[i] = px[i * 4 + 3] > 110 ? 1 : 0;
+    saidCv.style.aspectRatio = `${ledCols} / ${ledRows}`;
+    ledDraw();
+  }
+  function ledDraw() {
     const cv = saidCv, dpr = window.devicePixelRatio || 1;
+    if (!ledBits) return;
+    const boardEl = $("#board");
+    const availW = boardEl.clientWidth - 28;
+    const maxH = (boardEl.classList.contains("show") ? 0.32 : 0.40) * window.innerHeight;
+    cv.style.width = Math.max(120, Math.min(availW, maxH * ledCols / ledRows)) + "px";
     const cw = cv.clientWidth, ch = cv.clientHeight;
     if (!cw) return;
     if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
@@ -218,14 +229,15 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     g.clearRect(0, 0, cw, ch);
     const cs = getComputedStyle(document.documentElement);
     const on = cs.getPropertyValue("--led").trim(), dim = cs.getPropertyValue("--led-dim").trim();
-    const cell = cw / TC, r = cell * 0.36;
-    for (let y = 0; y < TR; y++) for (let x = 0; x < TC; x++) {
-      const sx = Math.floor(x + ledOffset);
-      const lit = ledBits && sx >= 0 && sx < ledW ? ledBits[y * ledW + sx] : 0;
+    const cell = cw / ledCols, r = cell * 0.36;
+    for (let y = 0; y < ledRows; y++) for (let x = 0; x < ledCols; x++) {
       g.beginPath(); g.arc(x * cell + cell / 2, y * cell + cell / 2, r, 0, Math.PI * 2);
-      g.fillStyle = lit ? on : dim; g.fill();
+      g.fillStyle = ledBits[y * ledCols + x] ? on : dim; g.fill();
     }
   }
+  new ResizeObserver(() => ledDraw()).observe($("#board"));
+  window.addEventListener("resize", ledDraw);
+  new MutationObserver(() => ledDraw()).observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
 
   const RULES = [
     ["pain", /痛|いた|つら|辛|苦し|しんど|きつ|だる|無理|むり/],
