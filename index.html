@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>しゃべる板</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+1+Code:wght@400;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+:root {
+  --bg: #f3f1ec; --fg: #1d1c1a; --muted: #6d6a62; --line: #d9d5cc;
+  --panel: #ffffff; --accent: #e8542f; --accent-fg: #ffffff; --chip: #ebe8e1;
+  --board: #0b0d12; --led: #ff7a3d; --led-dim: #1c1510;
+  --font-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-mono: "M PLUS 1 Code", "Hiragino Sans", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #141518; --fg: #ecebe6; --muted: #9b9890; --line: #2c2e34; --panel: #1d1f24;
+  --accent: #ff6a3f; --accent-fg: #14110f; --chip: #272a31; color-scheme: dark } }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: max(10px, env(safe-area-inset-top, 0px)); padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
+h1 { font-size: 15px; margin: 0; letter-spacing: .08em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+h1 span { font-weight: 500; }
+.board { background: var(--board); border-radius: 18px; padding: 14px; box-shadow: inset 0 0 0 2px #23262e, 0 8px 30px rgba(0,0,0,.35); }
+.led { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; aspect-ratio: 24 / 14; max-width: 100%; }
+.led i { display: block; border-radius: 50%; background: var(--led-dim); transition: background .08s; }
+.led i.on { background: var(--led); box-shadow: 0 0 6px var(--led); }
+.said { font-family: var(--font-mono); color: var(--led); font-size: clamp(20px, 5.5vw, 34px); line-height: 1.35; min-height: 1.35em;
+  margin: 12px 4px 2px; word-break: break-all; filter: brightness(1.15); }
+textarea { width: 100%; box-sizing: border-box; font: 500 22px/1.4 var(--font-ui); padding: 12px 14px; border: 2px solid var(--line);
+  border-radius: 14px; background: var(--panel); color: var(--fg); resize: none; min-height: 3.2em; }
+textarea:focus { outline: none; border-color: var(--accent); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button { font: 700 17px var(--font-ui); border: 0; border-radius: 12px; padding: 12px 16px; background: var(--chip); color: var(--fg); cursor: pointer; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button.go { background: var(--accent); color: var(--accent-fg); font-size: 22px; padding: 14px 26px; flex: 1 1 auto; }
+button.small { font-size: 15px; padding: 9px 12px; font-weight: 500; }
+.faces button { font-size: 18px; padding: 8px 10px; }
+.faces button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+details { border-top: 1px solid var(--line); padding-top: 8px; }
+summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+label { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
+.hist { display: flex; flex-wrap: wrap; gap: 6px; }
+.hist button { font-weight: 500; font-size: 15px; padding: 8px 12px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.swatches button { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 3px solid transparent; }
+.swatches button[aria-pressed="true"] { border-color: var(--fg); }
+.swatches input[type=color] { width: 44px; height: 34px; border: 0; background: none; padding: 0; }
+@media (prefers-reduced-motion: reduce) { .led i { transition: none; } }
+</style>
+</head>
+<body>
+
+<h1>しゃべる板 <span id="status">声を用意中…</span></h1>
+
+<div class="board" id="board">
+  <div class="led" id="led" aria-hidden="true"></div>
+  <div class="said" id="said">打った文を、この板がしゃべるのだ。</div>
+</div>
+
+<textarea id="text" placeholder="ここに打つ。Enterでしゃべる（改行は Shift+Enter）" autocomplete="off" autocapitalize="off"></textarea>
+<div class="row">
+  <button class="go" id="go">しゃべる</button>
+  <button id="stop" class="small">止める</button>
+  <button id="clear" class="small">消す</button>
+</div>
+<div class="row faces" id="faces" aria-label="表情">
+  <button data-face="auto" aria-pressed="true">自動</button>
+  <button data-face="smile">にこ</button>
+  <button data-face="pain">痛い</button>
+  <button data-face="sad">しょんぼり</button>
+  <button data-face="surprise">！</button>
+  <button data-face="question">？</button>
+  <button data-face="angry">むっ</button>
+  <button data-face="love">ありがとう</button>
+  <button data-face="sleepy">ねむ</button>
+</div>
+<div class="row hist" id="quick"></div>
+<details open>
+  <summary>声・色・履歴</summary>
+  <div class="row" style="margin-top:8px">
+    <label>声 <select id="voice"></select></label>
+    <label>速さ <input type="range" id="rate" min="0.6" max="1.6" step="0.05" value="1.0"></label>
+    <label>高さ <input type="range" id="pitch" min="-0.15" max="0.15" step="0.01" value="0"></label>
+  </div>
+  <p class="note" id="voicenote">声は WEB版VOICEVOX API（tts.quest）で合成。ネットが要る。混んでいると数秒待つ。</p>
+  <div class="swatches" id="swatches" style="margin-top:10px" aria-label="板の色">
+    <span class="note">色</span>
+    <input type="color" id="custom" value="#ff7a3d" aria-label="好きな色">
+  </div>
+  <div class="row hist" id="hist" style="margin-top:8px"></div>
+</details>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const API = "https://api.tts.quest/v3/voicevox";
+  const COLS = 24, ROWS = 14;
+  const led = $("#led");
+  const cells = [];
+  for (let i = 0; i < COLS * ROWS; i++) { const d = document.createElement("i"); led.appendChild(d); cells.push(d); }
+
+  const EYES = {
+    open:    ["01110","11111","11111","01110"],
+    happy:   ["00000","01110","11011","10001"],
+    closed:  ["00000","00000","11111","00000"],
+    sadL:    ["00000","00011","01110","11000"],
+    sadR:    ["00000","11000","01110","00011"],
+    angryL:  ["11000","01110","00011","00000"],
+    angryR:  ["00011","01110","11000","00000"],
+    wide:    ["11111","10001","10001","11111"],
+    heart:   ["01010","11111","01110","00100"],
+    sleepyL: ["00000","11111","00000","00000"],
+  };
+  const MOUTHS = {
+    flat:  ["0000000000","0000000000","0011111100","0000000000"],
+    smile: ["0000000000","1000000001","0100000010","0011111100"],
+    frown: ["0000000000","0011111100","0100000010","1000000001"],
+    o:     ["0001111000","0010000100","0010000100","0001111000"],
+    open:  ["0011111100","0100000010","0100000010","0011111100"],
+    wave:  ["0000000000","0110011000","1001100110","0000000000"],
+    tri:   ["1111111111","0100000010","0010000100","0001111000"],
+    small: ["0000000000","0000000000","0000110000","0000000000"],
+  };
+  const MARKS = {
+    q: ["011110","100001","000010","000100","000000","000100"],
+    ex: ["001100","001100","001100","001100","000000","001100"],
+    drop: ["000100","001110","011111","011111","001110","000000"],
+    zz: ["111000","001000","010000","111011","000010","000111"],
+  };
+  const FACES = {
+    neutral:  { l: "open",  r: "open",  m: "flat" },
+    smile:    { l: "happy", r: "happy", m: "smile" },
+    pain:     { l: "sadL",  r: "sadR",  m: "wave", mark: "drop" },
+    sad:      { l: "sadL",  r: "sadR",  m: "frown" },
+    surprise: { l: "wide",  r: "wide",  m: "o", mark: "ex" },
+    question: { l: "open",  r: "closed", m: "small", mark: "q" },
+    angry:    { l: "angryL", r: "angryR", m: "frown" },
+    love:     { l: "heart", r: "heart", m: "tri" },
+    sleepy:   { l: "sleepyL", r: "sleepyL", m: "small", mark: "zz" },
+  };
+  function draw(face, talking) {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    const put = (bmp, x0, y0) => bmp.forEach((row, y) => [...row].forEach((c, x) => { if (c === "1" && grid[y0 + y]) grid[y0 + y][x0 + x] = 1; }));
+    const f = FACES[face] || FACES.neutral;
+    put(EYES[f.l], 5, 3);
+    put(EYES[f.r], 14, 3);
+    put(MOUTHS[talking ? "open" : f.m], 7, 9);
+    if (f.mark) put(MARKS[f.mark], 18, 0);
+    grid.forEach((row, y) => row.forEach((v, x) => cells[y * COLS + x].classList.toggle("on", v === 1)));
+  }
+
+  const RULES = [
+    ["pain", /痛|いた|つら|辛|苦し|しんど|きつ|だる|無理|むり/],
+    ["love", /ありがと|感謝|助か|大好き|好き|嬉し|うれし|最高|やった/],
+    ["angry", /怒|むか|ふざけ|ダメ|だめ|やめ|最悪|ひど/],
+    ["sad", /ごめん|すまん|悲し|かなし|残念|寂し|さみし|泣/],
+    ["sleepy", /眠|ねむ|寝|おやすみ|疲れ|つかれ/],
+    ["surprise", /[!！]|すご|マジ|まじ|えっ|わあ|やば/],
+    ["question", /[?？]|かな$|どう|なに|何|いつ|どこ|だれ|誰|ですか|ますか/],
+    ["smile", /笑|w$|ww|はは|うん|いいよ|OK|おけ|了解|わかった|分かった|こんにち|おはよ|こんばん|よろしく/i],
+  ];
+  function guess(text) { for (const [face, re] of RULES) if (re.test(text)) return face; return "neutral"; }
+
+  // ---- 色 ----
+  const COLORS = [["#ff7a3d", "だいだい"], ["#ff4d6d", "ピンク"], ["#ffd23f", "黄"], ["#5df08a", "緑"], ["#4fc3ff", "水色"], ["#b48cff", "紫"], ["#f4f1ec", "白"]];
+  const sw = $("#swatches"), custom = $("#custom");
+  const hexToRgb = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  function setColor(hex) {
+    document.documentElement.style.setProperty("--led", hex);
+    const [r, g, b] = hexToRgb(hex);
+    document.documentElement.style.setProperty("--led-dim", `rgb(${Math.round(r * .12)}, ${Math.round(g * .12)}, ${Math.round(b * .12)})`);
+    sw.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x.dataset.c === hex ? "true" : "false"));
+    custom.value = hex;
+    try { localStorage.setItem("tb.color", hex); } catch (e) {}
+  }
+  COLORS.forEach(([c, name]) => { const b = document.createElement("button"); b.dataset.c = c; b.style.background = c; b.title = name; b.setAttribute("aria-label", name); b.addEventListener("click", () => setColor(c)); sw.insertBefore(b, custom); });
+  custom.addEventListener("input", () => setColor(custom.value));
+  let savedColor = null; try { savedColor = localStorage.getItem("tb.color"); } catch (e) {}
+  setColor(savedColor || "#ff7a3d");
+
+  // ---- 声（WEB版VOICEVOX API）----
+  const voiceSel = $("#voice"), status = $("#status");
+  // API が落ちていても選べるように、主な声を先に入れておく（ID は VOICEVOX と同じ）
+  const FALLBACK = [[3, "ずんだもん（ノーマル）"], [1, "ずんだもん（あまあま）"], [7, "ずんだもん（ツンツン）"], [22, "ずんだもん（ささやき）"],
+    [2, "四国めたん（ノーマル）"], [8, "春日部つむぎ（ノーマル）"], [43, "櫻歌ミコ（ノーマル）"], [44, "櫻歌ミコ（第二形態）"], [45, "櫻歌ミコ（ロリ）"],
+    [10, "雨晴はう（ノーマル）"], [14, "冥鳴ひまり（ノーマル）"], [16, "九州そら（ノーマル）"], [20, "もち子さん（ノーマル）"], [47, "ナースロボ＿タイプＴ（ノーマル）"],
+    [11, "玄野武宏（ノーマル）"], [13, "青山龍星（ノーマル）"], [58, "猫使ビィ（ノーマル）"], [67, "栗田まろん（ノーマル）"], [107, "東北ずん子（ノーマル）"]];
+  function fillVoices(list) {
+    voiceSel.innerHTML = "";
+    list.forEach(([id, name]) => { const o = document.createElement("option"); o.value = id; o.textContent = name; voiceSel.appendChild(o); });
+    let saved = null; try { saved = localStorage.getItem("tb.style"); } catch (e) {}
+    voiceSel.value = list.some(([id]) => String(id) === saved) ? saved : String(list[0][0]);
+  }
+  fillVoices(FALLBACK);
+  status.textContent = "VOICEVOX";
+  fetch(API + "/speakers_array").then((r) => r.json()).then((j) => {
+    const arr = Array.isArray(j) ? j : (j && j.speakers) || [];
+    const list = [];
+    arr.forEach((name, id) => { if (name) list.push([id, String(name).replace(/^VOICEVOX:/, "")]); });
+    if (list.length) {
+      // ずんだもんとミコを先頭に
+      list.sort((a, b) => (/ずんだもん|ミコ/.test(b[1]) ? 1 : 0) - (/ずんだもん|ミコ/.test(a[1]) ? 1 : 0));
+      fillVoices(list);
+    }
+  }).catch(() => {});
+  voiceSel.addEventListener("change", () => { try { localStorage.setItem("tb.style", voiceSel.value); } catch (e) {} });
+
+  const audio = new Audio();
+  let manual = "auto", talkTimer = null, current = "neutral", seq = 0;
+  function startMouth() { let open = false; clearInterval(talkTimer); talkTimer = setInterval(() => { open = !open; draw(current, open); }, 140); }
+  function stopMouth() { clearInterval(talkTimer); talkTimer = null; draw(current, false); }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function speak(text) {
+    text = text.trim();
+    if (!text) return;
+    const my = ++seq;
+    current = manual === "auto" ? guess(text) : manual;
+    $("#said").textContent = text;
+    draw(current, false);
+    addHistory(text);
+    audio.pause();
+    status.textContent = "合成中…";
+    // iOS は「タップの中で play() した audio」だけ鳴らせるので、先に無音で再生を始めておく
+    try { audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="; await audio.play(); } catch (e) {}
+    try {
+      const q = new URLSearchParams({ text, speaker: voiceSel.value, speed: $("#rate").value, pitch: $("#pitch").value });
+      const r = await fetch(`${API}/synthesis?${q}`);
+      const j = await r.json();
+      if (my !== seq) return;
+      if (!j.success) throw new Error(j.errorMessage || "api");
+      // 出来上がるまで status.json を見る（混んでいると数秒）
+      for (let i = 0; i < 60; i++) {
+        const s = await (await fetch(j.audioStatusUrl, { cache: "no-store" })).json();
+        if (s.isAudioReady) break;
+        if (s.isAudioError) throw new Error("audio error");
+        await sleep(500);
+        if (my !== seq) return;
+      }
+      audio.src = j.mp3DownloadUrl;
+      audio.onplay = startMouth; audio.onended = stopMouth; audio.onerror = stopMouth;
+      await audio.play();
+      status.textContent = "VOICEVOX";
+    } catch (e) {
+      status.textContent = "合成に失敗（混雑かネット）";
+      stopMouth();
+    }
+  }
+
+  const QUICK = ["はい", "いいえ", "ありがとう", "ちょっと待って", "痛い", "水ください", "大丈夫", "わからない", "ごめん", "おやすみ"];
+  const quick = $("#quick");
+  QUICK.forEach((t) => { const b = document.createElement("button"); b.textContent = t; b.addEventListener("click", () => speak(t)); quick.appendChild(b); });
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem("tb.hist") || "[]"); } catch (e) { hist = []; }
+  function renderHist() {
+    const h = $("#hist"); h.innerHTML = "";
+    hist.slice(0, 20).forEach((t) => { const b = document.createElement("button"); b.textContent = t; b.title = t; b.addEventListener("click", () => speak(t)); h.appendChild(b); });
+  }
+  function addHistory(t) {
+    hist = [t, ...hist.filter((x) => x !== t)].slice(0, 20);
+    try { localStorage.setItem("tb.hist", JSON.stringify(hist)); } catch (e) {}
+    renderHist();
+  }
+  renderHist();
+
+  const ta = $("#text");
+  $("#go").addEventListener("click", () => { speak(ta.value); ta.focus(); });
+  $("#stop").addEventListener("click", () => { seq++; audio.pause(); stopMouth(); status.textContent = "VOICEVOX"; });
+  $("#clear").addEventListener("click", () => { ta.value = ""; ta.focus(); });
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); speak(ta.value); } });
+  ta.addEventListener("input", () => { if (manual === "auto") draw(guess(ta.value), false); });
+  document.querySelectorAll("#faces button").forEach((b) => b.addEventListener("click", () => {
+    manual = b.dataset.face;
+    document.querySelectorAll("#faces button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    draw(manual === "auto" ? guess(ta.value) : manual, false);
+  }));
+  draw("smile", false);
+})();
+</script>
+</body>
+</html>
