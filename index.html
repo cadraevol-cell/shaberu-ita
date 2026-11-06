@@ -30,18 +30,13 @@ h1 span { font-weight: 500; }
 .led { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; aspect-ratio: 24 / 14; max-width: 100%; }
 .led i { display: block; border-radius: 50%; background: var(--led-dim); transition: background .08s; }
 .led i.on { background: var(--led); box-shadow: 0 0 6px var(--led); }
-/* 顔の下の吹き出し：相手に見せる用に、白地に黒い大きな字 */
-.said { position: relative; margin: 18px 4px 4px; background: #fff; color: #15130f; border-radius: 18px; padding: 14px 18px;
-  font: 700 clamp(24px, 6vw, 40px)/1.35 var(--font-ui); word-break: break-all; min-height: 1.35em; }
-.said::before { content: ""; position: absolute; top: -12px; left: 44px; border: 12px solid transparent; border-top: 0; border-bottom-color: #fff; }
-.said.pop { animation: pop .22s ease-out; }
-@keyframes pop { from { transform: scale(.92); opacity: .3; } to { transform: none; opacity: 1; } }
+/* 顔の下の電光掲示：文字も同じドットで光る。長い文は右から左へ流れる */
+.said { display: block; width: 100%; aspect-ratio: 80 / 20; margin-top: 12px; }
 /* 見せるモード：板が画面いっぱい */
 .board.show { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box;
   padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); }
 .board.show .led { width: min(100%, 60vh * 24 / 14); margin: 0 auto; }
-.board.show .said { font-size: clamp(30px, 7vw, 72px); margin-top: 26px; }
-.board.show .said::before { left: 60px; }
+.board.show .said { margin-top: 26px; }
 .hint { font-size: 12px; color: #6b6f7a; text-align: right; margin: 8px 4px 0; }
 .board.show .hint { display: none; }
 textarea { width: 100%; box-sizing: border-box; font: 500 22px/1.4 var(--font-ui); padding: 12px 14px; border: 2px solid var(--line);
@@ -74,7 +69,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
 
 <div class="board" id="board">
   <div class="led" id="led" aria-hidden="true"></div>
-  <div class="said" id="said">打った文を、この板がしゃべるのだ。</div>
+  <canvas class="said" id="said" width="800" height="200" aria-label="しゃべった文"></canvas>
   <div class="hint">板をタップすると大きく見せられる</div>
 </div>
 
@@ -171,6 +166,54 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     grid.forEach((row, y) => row.forEach((v, x) => cells[y * COLS + x].classList.toggle("on", v === 1)));
   }
 
+  // ---- 文字の電光掲示（80×20 ドット。収まらなければ流す） ----
+  const TC = 80, TR = 20;
+  const saidCv = $("#said");
+  let ledBits = null, ledW = 0, ledOffset = 0, ledAnim = null, ledLast = 0;
+  function ledText(text) {
+    const off = document.createElement("canvas");
+    const ctx0 = off.getContext("2d");
+    ctx0.font = `700 ${TR - 2}px ${getComputedStyle(document.documentElement).getPropertyValue("--font-ui")}`;
+    const w = Math.ceil(ctx0.measureText(text).width) + 2;
+    ledW = Math.max(TC, w);
+    off.width = ledW; off.height = TR;
+    const ctx = off.getContext("2d");
+    ctx.font = ctx0.font; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
+    ctx.fillText(text, w <= TC ? Math.floor((TC - w) / 2) + 1 : 1, TR / 2 + 1);
+    const px = ctx.getImageData(0, 0, ledW, TR).data;
+    ledBits = new Uint8Array(ledW * TR);
+    for (let i = 0; i < ledW * TR; i++) ledBits[i] = px[i * 4 + 3] > 110 ? 1 : 0;
+    ledOffset = w <= TC ? 0 : -TC;
+    ledLast = performance.now();
+    if (!ledAnim) ledAnim = requestAnimationFrame(ledFrame);
+  }
+  function ledFrame(now) {
+    ledAnim = requestAnimationFrame(ledFrame);
+    const scrolling = ledW > TC;
+    if (scrolling) {
+      const dt = Math.min(0.1, (now - ledLast) / 1000);
+      ledOffset += dt * 14;
+      if (ledOffset > ledW) ledOffset = -TC;
+    }
+    ledLast = now;
+    const cv = saidCv, dpr = window.devicePixelRatio || 1;
+    const cw = cv.clientWidth, ch = cv.clientHeight;
+    if (!cw) return;
+    if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cw, ch);
+    const cs = getComputedStyle(document.documentElement);
+    const on = cs.getPropertyValue("--led").trim(), dim = cs.getPropertyValue("--led-dim").trim();
+    const cell = cw / TC, r = cell * 0.36;
+    for (let y = 0; y < TR; y++) for (let x = 0; x < TC; x++) {
+      const sx = Math.floor(x + ledOffset);
+      const lit = ledBits && sx >= 0 && sx < ledW ? ledBits[y * ledW + sx] : 0;
+      g.beginPath(); g.arc(x * cell + cell / 2, y * cell + cell / 2, r, 0, Math.PI * 2);
+      g.fillStyle = lit ? on : dim; g.fill();
+    }
+  }
+
   const RULES = [
     ["pain", /痛|いた|つら|辛|苦し|しんど|きつ|だる|無理|むり/],
     ["love", /ありがと|感謝|助か|大好き|好き|嬉し|うれし|最高|やった/],
@@ -238,9 +281,7 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     if (!text) return;
     const my = ++seq;
     current = manual === "auto" ? guess(text) : manual;
-    const said = $("#said");
-    said.textContent = text;
-    said.classList.remove("pop"); void said.offsetWidth; said.classList.add("pop");
+    ledText(text);
     draw(current, false);
     addHistory(text);
     audio.pause();
@@ -310,6 +351,8 @@ select, input[type=range] { font: 15px var(--font-ui); max-width: 100%; }
     draw(manual === "auto" ? guess(ta.value) : manual, false);
   }));
   draw("smile", false);
+  ledText("打った文が ここに光るのだ");
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => ledText("打った文が ここに光るのだ"));
 })();
 </script>
 </body>
